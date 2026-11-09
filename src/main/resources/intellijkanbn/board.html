@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data: https: file:; script-src 'nonce-__NONCE__';">
+<style id="theme">__THEME__</style>
+<style>
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body {
+  background: var(--bg); color: var(--fg);
+  font-family: var(--font); font-size: var(--font-size);
+  display: flex; flex-direction: column; overflow: hidden;
+}
+button { font: inherit; color: inherit; background: var(--card); border: 1px solid var(--border); border-radius: 4px; padding: 2px 10px; cursor: pointer; }
+button:hover { border-color: var(--accent); }
+select { font: inherit; color: var(--fg); background: var(--card); border: 1px solid var(--border); border-radius: 4px; padding: 2px 4px; }
+
+header { display: flex; align-items: center; gap: 10px; padding: 6px 10px; border-bottom: 1px solid var(--border); flex: none; }
+header h1 { font-size: 1.1em; margin: 0; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+header .stats { color: var(--muted); white-space: nowrap; }
+header .spacer { flex: 1; }
+
+main { flex: 1; display: flex; min-height: 0; }
+#board { flex: 1; display: flex; gap: 10px; padding: 10px; overflow: auto; align-items: flex-start; scroll-padding: 10px; }
+/* Pravy okraj za poslednim sloupcem (padding flex kontejneru se na konci posunu nezapocita) */
+#board::after { content: ''; flex: 0 0 1px; }
+.column { flex: 0 0 260px; background: var(--column); border: 1px solid var(--border); border-radius: 6px; display: flex; flex-direction: column; max-height: 100%; }
+.column > h2 { font-size: 1em; margin: 0; padding: 8px 10px; display: flex; justify-content: space-between; border-bottom: 1px solid var(--border); }
+.column > h2 .count { color: var(--muted); font-weight: normal; }
+.column .cards { padding: 8px; display: flex; flex-direction: column; gap: 8px; overflow-y: auto; }
+.empty { color: var(--muted); font-style: italic; padding: 4px 2px; }
+
+.card { background: var(--card); border: 1px solid var(--border); border-radius: 5px; padding: 7px 9px; cursor: pointer; }
+.card:hover { border-color: var(--accent); }
+.card.selected { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.card.missing { border-style: dashed; color: var(--error); }
+.card .name { font-weight: 600; word-break: break-word; }
+.card .id { font-family: var(--mono); font-size: .85em; color: var(--muted); word-break: break-all; }
+.card .meta { display: flex; flex-wrap: wrap; gap: 4px 8px; margin-top: 5px; font-size: .9em; color: var(--muted); }
+.card .done { color: var(--success); }
+.card .overdue { color: var(--error); }
+.simple { color: var(--muted); opacity: .75; padding: 2px 4px; border-left: 2px solid var(--border); }
+.tag { display: inline-block; border: 1px solid var(--border); border-radius: 9px; padding: 0 7px; font-size: .85em; }
+.progress { height: 4px; background: var(--border); border-radius: 2px; margin-top: 6px; overflow: hidden; }
+.progress > div { height: 100%; background: var(--accent); }
+.progress.complete > div { background: var(--success); }
+
+#detail { flex: 0 0 auto; width: min(560px, 55%); border-left: 1px solid var(--border); background: var(--card); overflow-y: auto; padding: 12px 16px; display: none; }
+#detail.open { display: block; }
+#detail .top { display: flex; align-items: flex-start; gap: 8px; }
+#detail h2 { margin: 0; font-size: 1.25em; flex: 1; word-break: break-word; }
+#detail h3 { font-size: 1em; margin: 18px 0 6px; border-bottom: 1px solid var(--border); padding-bottom: 3px; }
+#detail .sub { color: var(--muted); margin: 4px 0 10px; }
+#detail .sub code { font-family: var(--mono); }
+#detail table { border-collapse: collapse; width: 100%; }
+#detail td { padding: 2px 8px 2px 0; vertical-align: top; word-break: break-word; }
+#detail td:first-child { color: var(--muted); white-space: nowrap; width: 1%; }
+#detail .comment { border: 1px solid var(--border); border-radius: 5px; padding: 6px 10px; margin-bottom: 8px; }
+#detail .comment .who, #detail td .who { color: var(--muted); font-size: .9em; }
+#detail ul.subtasks { list-style: none; padding-left: 0; margin: 0; }
+#detail ul.subtasks li.ok { color: var(--muted); text-decoration: line-through; }
+.md pre { background: var(--bg); border: 1px solid var(--border); border-radius: 4px; padding: 8px; overflow-x: auto; }
+.md code { font-family: var(--mono); }
+.md a, a.task { color: var(--accent); }
+.md table { border-collapse: collapse; }
+.md th, .md td { border: 1px solid var(--border); padding: 2px 6px; }
+.md img { max-width: 100%; }
+a.task { cursor: pointer; text-decoration: underline; }
+
+#message { padding: 24px; color: var(--muted); }
+#message code { font-family: var(--mono); color: var(--fg); }
+</style>
+</head>
+<body>
+<header>
+  <select id="boardSelect" style="display:none"></select>
+  <h1 id="title">Kanbn</h1>
+  <span class="stats" id="stats"></span>
+  <span class="spacer"></span>
+</header>
+<main>
+  <div id="board"></div>
+  <aside id="detail"></aside>
+</main>
+<script nonce="__NONCE__">
+(function () {
+  function send(msg) { __SEND__ }
+
+  var data = null;
+  var selected = null;
+
+  // Progress (pole `progress` ukolu) se zatim v UI nezobrazuje: agenti ho nenastavuji.
+  // Data i vykresleni zustavaji, pro zapnuti staci prepnout na true.
+  var SHOW_PROGRESS = false;
+
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+  function fmtDate(s) {
+    if (!s) return '';
+    var d = new Date(s);
+    if (isNaN(d.getTime())) return String(s);
+    return d.toLocaleString('cs-CZ', { day: 'numeric', month: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+  }
+  function fmtDay(s) {
+    if (!s) return '';
+    var d = new Date(s);
+    return isNaN(d.getTime()) ? String(s) : d.toLocaleDateString('cs-CZ');
+  }
+  function el(id) { return document.getElementById(id); }
+
+  function progressBar(t) {
+    if (!SHOW_PROGRESS || t.progress == null || (t.progress <= 0 && !t.completed)) return '';
+    var p = Math.max(0, Math.min(1, t.progress)) * 100;
+    return '<div class="progress' + (t.completed ? ' complete' : '') + '"><div style="width:' + p + '%"></div></div>';
+  }
+
+  function card(t) {
+    if (!t.exists) {
+      return '<div class="card missing" data-id="' + esc(t.id) + '"><div class="name">' + esc(t.id) +
+        '</div><div class="meta">soubor úkolu chybí</div></div>';
+    }
+    var meta = [];
+    if (t.completed) meta.push('<span class="done">&#10003; hotovo</span>');
+    else if (t.started) meta.push('<span>&#9654; rozpracováno</span>');
+    if (t.assigned) meta.push('<span>&#128100; ' + esc(t.assigned) + '</span>');
+    if (t.subTasks.length) {
+      var done = t.subTasks.filter(function (s) { return s.completed; }).length;
+      meta.push('<span>&#9745; ' + done + '/' + t.subTasks.length + '</span>');
+    }
+    if (t.due) meta.push('<span class="' + (t.overdue ? 'overdue' : '') + '">termín ' + esc(fmtDay(t.due)) + '</span>');
+    if (t.comments.length) meta.push('<span>&#128172; ' + t.comments.length + '</span>');
+    var tags = t.tags.map(function (g) { return '<span class="tag">' + esc(g) + '</span>'; }).join(' ');
+    return '<div class="card' + (selected === t.id ? ' selected' : '') + '" data-id="' + esc(t.id) + '">' +
+      '<div class="name">' + esc(t.name) + '</div>' +
+      '<div class="id">' + esc(t.id) + '</div>' +
+      (meta.length || tags ? '<div class="meta">' + meta.join('') + tags + '</div>' : '') +
+      progressBar(t) +
+      '</div>';
+  }
+
+  function renderBoard() {
+    var board = el('board');
+    var total = 0, completed = 0;
+    var html = data.columns.map(function (c) {
+      var cards = c.taskIds.map(function (id) {
+        var t = data.tasks[id];
+        total++;
+        if (t && t.completed) completed++;
+        return t ? card(t) : '';
+      }).join('');
+      var simple = c.simple.map(function (s) { return '<div class="simple">' + esc(s) + '</div>'; }).join('');
+      var body = cards + simple || '<div class="empty">prázdné</div>';
+      return '<section class="column"><h2><span>' + esc(c.name) + '</span><span class="count">' +
+        c.taskIds.length + '</span></h2><div class="cards">' + body + '</div></section>';
+    }).join('');
+    var scroll = [board.scrollLeft, board.scrollTop];
+    var colScroll = Array.prototype.map.call(board.querySelectorAll('.cards'), function (e) { return e.scrollTop; });
+    board.innerHTML = html;
+    board.scrollLeft = scroll[0]; board.scrollTop = scroll[1];
+    Array.prototype.forEach.call(board.querySelectorAll('.cards'), function (e, i) { if (colScroll[i]) e.scrollTop = colScroll[i]; });
+
+    var hidden = data.hiddenColumns.length
+      ? ' · skryté sloupce: ' + data.hiddenColumns.map(function (h) { return h.name + ' (' + h.count + ')'; }).join(', ')
+      : '';
+    el('stats').textContent = total + ' úkolů, ' + completed + ' hotovo' + hidden;
+  }
+
+  function renderBoardSelect() {
+    var sel = el('boardSelect');
+    if (data.boards.length < 2) { sel.style.display = 'none'; return; }
+    sel.style.display = '';
+    sel.innerHTML = data.boards.map(function (b) {
+      return '<option value="' + esc(b.slug) + '"' + (b.slug === data.board ? ' selected' : '') + '>' + esc(b.title) + '</option>';
+    }).join('');
+  }
+
+  function taskLink(id) {
+    var t = data.tasks[id];
+    return t ? '<a class="task" data-id="' + esc(id) + '">' + esc(t.name) + '</a> <code>' + esc(id) + '</code>'
+             : '<code>' + esc(id) + '</code>';
+  }
+
+  function renderDetail() {
+    var d = el('detail');
+    var t = selected && data && data.tasks[selected];
+    if (!t) { d.className = ''; d.innerHTML = ''; return; }
+    var h = '<div class="top"><h2>' + esc(t.name) + '</h2>' +
+      '<button data-close="1" title="Zavřít (Esc)">&#10005;</button></div>';
+    h += '<div class="sub"><code>' + esc(t.id) + '</code>' + (t.column ? ' · sloupec <b>' + esc(t.column) + '</b>' : ' · není na tomto boardu') + '</div>';
+    if (!t.exists) return show(h + '<p>Soubor úkolu neexistuje: <code>' + esc(t.file) + '</code></p>');
+
+    if (t.progress != null) h += progressBar(t);
+    if (t.metadata.length) {
+      h += '<h3>Metadata</h3><table>' + t.metadata.filter(function (kv) {
+        return SHOW_PROGRESS || kv[0] !== 'progress';
+      }).map(function (kv) {
+        var v = /^\d{4}-\d{2}-\d{2}T/.test(kv[1]) ? fmtDate(kv[1]) : kv[1];
+        return '<tr><td>' + esc(kv[0]) + '</td><td>' + esc(v) + '</td></tr>';
+      }).join('') + '</table>';
+    }
+    if (t.descriptionHtml) h += '<h3>Popis</h3><div class="md">' + t.descriptionHtml + '</div>';
+    if (t.subTasks.length) {
+      h += '<h3>Podúkoly</h3><ul class="subtasks">' + t.subTasks.map(function (s) {
+        return '<li class="' + (s.completed ? 'ok' : '') + '">' + (s.completed ? '&#9745; ' : '&#9744; ') + esc(s.text) + '</li>';
+      }).join('') + '</ul>';
+    }
+    if (t.relations.length) {
+      h += '<h3>Vazby</h3><table>' + t.relations.map(function (r) {
+        return '<tr><td>' + esc(r.type || 'souvisí') + '</td><td>' + taskLink(r.id) + '</td></tr>';
+      }).join('') + '</table>';
+    }
+    if (t.comments.length) {
+      h += '<h3>Komentáře</h3>' + t.comments.map(function (c) {
+        return '<div class="comment"><div class="who">' + esc(c.author || '?') + (c.date ? ' · ' + esc(fmtDate(c.date)) : '') +
+          '</div><div class="md">' + c.html + '</div></div>';
+      }).join('');
+    }
+    var history = t.history.filter(function (e) { return SHOW_PROGRESS || e.type !== 'progress'; });
+    if (history.length) {
+      h += '<h3>Historie</h3><table>' + history.slice().reverse().map(function (e) {
+        var what = esc(e.type || '');
+        if (e.fromColumn || e.toColumn) what += ' ' + esc(e.fromColumn || '') + (e.fromColumn && e.toColumn ? ' &rarr; ' : '') + esc(e.toColumn || '');
+        else if (e.column) what += ' ' + esc(e.column);
+        if (e.type === 'progress') what += ' ' + esc(e.fromProgress) + ' &rarr; ' + esc(e.toProgress);
+        if (e.board) what += ' (' + esc(e.board) + ')';
+        if (e.author) what += ' <span class="who">· ' + esc(e.author) + '</span>';
+        return '<tr><td>' + esc(fmtDate(e.date)) + '</td><td>' + what + '</td></tr>';
+      }).join('') + '</table>';
+    }
+    show(h);
+
+    function show(html) {
+      var top = d.scrollTop, same = d.getAttribute('data-id') === t.id;
+      d.innerHTML = html;
+      d.className = 'open';
+      d.setAttribute('data-id', t.id);
+      if (same) d.scrollTop = top;
+    }
+  }
+
+  function renderMessage() {
+    var msg = {
+      noWorkspace: 'V kořeni projektu není kanbn board (<code>.kanbn/index.md</code>). Založte ho příkazem <code>kanbn init</code>.',
+      noBoard: 'Ve složce kanbn není žádný board (markdown soubor s nadpisem H1).',
+      exception: 'Board se nepodařilo načíst: ' + esc(data.message)
+    }[data.error] || esc(data.error);
+    el('board').innerHTML = '<div id="message">' + msg + '</div>';
+    el('title').textContent = 'Kanbn';
+    el('stats').textContent = '';
+    el('boardSelect').style.display = 'none';
+    selected = null;
+    renderDetail();
+  }
+
+  window.kanbn = {
+    render: function (d) {
+      data = d;
+      if (d.error) return renderMessage();
+      el('title').textContent = d.title;
+      renderBoardSelect();
+      renderBoard();
+      renderDetail();
+    },
+    setTheme: function (css) { el('theme').textContent = css; }
+  };
+
+  function select(id) {
+    selected = id;
+    renderBoard();
+    renderDetail();
+    revealSelected();
+  }
+
+  // Detail zuzi plochu boardu: posunout board tak, aby sloupec i karta vybraneho ukolu zustaly videt
+  function revealSelected() {
+    var card = selected && document.querySelector('#board .card.selected');
+    if (!card) return;
+    var column = card.closest('.column');
+    column.scrollIntoView({ inline: 'nearest', block: 'nearest', behavior: 'smooth' });
+    card.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  }
+
+  document.addEventListener('click', function (e) {
+    var target = e.target.closest('[data-close],a.task,.card,.md a');
+    if (!target) return;
+    if (target.hasAttribute('data-close')) return select(null);
+    if (target.matches('.md a')) {
+      // Odkazy v popisu: na jiny ukol (soubor .md v tasks) otevrou jeho detail, ostatni se ignoruji
+      e.preventDefault();
+      var m = /([^\/\\]+)\.md$/.exec(target.getAttribute('href') || '');
+      if (m && data.tasks[m[1]]) select(m[1]);
+      return;
+    }
+    select(target.getAttribute('data-id'));
+  });
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && selected) select(null); });
+  el('boardSelect').addEventListener('change', function (e) { selected = null; send('board:' + e.target.value); });
+
+  // Handshake: dokud neprijdou prvni data, opakovat 'ready' (prvni zprava se muze ztratit pri startu JCEF)
+  send('ready');
+  var readyTimer = setInterval(function () {
+    if (data) clearInterval(readyTimer); else send('ready');
+  }, 700);
+})();
+</script>
+</body>
+</html>

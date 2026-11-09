@@ -1,0 +1,3 @@
+# Fixture vytvorena kanbn CLI, testy pocitaji s LF
+src/test/resources/fixture/** text eol=lf
+*.bat text eol=crlf

@@ -1,0 +1,107 @@
+# GitHub Actions workflow for publishing the plugin to JetBrains Marketplace.
+# Runs when the release draft created by the Build workflow is published (released or prereleased):
+# - Patch CHANGELOG.md with the release note.
+# - Publish the plugin with the 'publishPlugin' task (signed when the signing secrets are set).
+# - Attach the plugin ZIP to the GitHub release.
+# - Open a pull request with the patched CHANGELOG.md.
+#
+# Required secret: PUBLISH_TOKEN (JetBrains Marketplace token).
+# Optional secrets for signing: CERTIFICATE_CHAIN, PRIVATE_KEY, PRIVATE_KEY_PASSWORD.
+
+name: Release
+on:
+  release:
+    types: [ prereleased, released ]
+
+jobs:
+
+  release:
+    name: Publish Plugin
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+
+      # Free GitHub Actions Environment Disk Space
+      - name: Maximize Build Space
+        uses: jlumbroso/free-disk-space@v2.0.0
+        with:
+          preinstalled-runtimes: false
+          large-packages: false
+
+      # Check out the released tag
+      - name: Fetch Sources
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.release.tag_name }}
+
+      # Set up the Java environment for the next steps
+      - name: Setup Java
+        uses: actions/setup-java@v6
+        with:
+          distribution: zulu
+          java-version: 21
+
+      # Setup Gradle
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v6
+        with:
+          cache-read-only: true
+
+      # Patch CHANGELOG.md with the release note (passed through env, not interpolated into the script)
+      - name: Patch Changelog
+        env:
+          RELEASE_NOTE: ${{ github.event.release.body }}
+        run: |
+          CHANGELOG="$(printf '%s\n' "$RELEASE_NOTE" | sed -e 's/\r$//' -e 's/^[[:space:]]*$//' -e '/./,$!d')"
+          if [ -n "$CHANGELOG" ]; then
+            ./gradlew patchChangelog --release-note="$CHANGELOG"
+          fi
+
+      # Publish the plugin to JetBrains Marketplace
+      - name: Publish Plugin
+        env:
+          PUBLISH_TOKEN: ${{ secrets.PUBLISH_TOKEN }}
+          CERTIFICATE_CHAIN: ${{ secrets.CERTIFICATE_CHAIN }}
+          PRIVATE_KEY: ${{ secrets.PRIVATE_KEY }}
+          PRIVATE_KEY_PASSWORD: ${{ secrets.PRIVATE_KEY_PASSWORD }}
+        run: ./gradlew publishPlugin
+
+      # Upload the plugin ZIP as a release asset
+      - name: Upload Release Asset
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.event.release.tag_name }}
+        run: gh release upload "$TAG" ./build/distributions/*
+
+      # Open a pull request with the patched CHANGELOG.md
+      - name: Create Pull Request
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ github.event.release.tag_name }}
+        run: |
+          if git diff --quiet -- CHANGELOG.md; then
+            echo "CHANGELOG.md unchanged, no pull request"
+            exit 0
+          fi
+          BRANCH="changelog-update-$VERSION"
+          LABEL="release changelog"
+
+          git config user.email "action@github.com"
+          git config user.name "GitHub Action"
+
+          git checkout -b "$BRANCH"
+          git commit -m "Changelog update - $VERSION" -- CHANGELOG.md
+          git push --set-upstream origin "$BRANCH"
+
+          gh label create "$LABEL" \
+            --description "Pull requests with release changelog update" \
+            --force \
+            || true
+
+          gh pr create \
+            --title "Changelog update - \`$VERSION\`" \
+            --body "Current pull request contains patched \`CHANGELOG.md\` file for the \`$VERSION\` version." \
+            --label "$LABEL" \
+            --head "$BRANCH"

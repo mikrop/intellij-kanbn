@@ -1,0 +1,18 @@
+<idea-plugin>
+    <id>com.github.mikrop.intellijkanbn</id>
+    <name>Kanbn Board</name>
+    <vendor url="https://github.com/mikrop/intellij-kanbn">mikrop</vendor>
+    <description><![CDATA[
+        <p>Read-only kanban board for <a href="https://github.com/basementuniverse/kanbn">Kanbn</a> workspaces.</p>
+        <p>Shows the columns and tasks stored as markdown files in <code>.kanbn/</code>, with task detail on click.
+        The board refreshes itself when the files change, e.g. when AI agents move tasks with the kanbn CLI.</p>
+    ]]></description>
+
+    <depends>com.intellij.modules.platform</depends>
+    <depends>com.intellij.modules.jcef</depends>
+
+    <extensions defaultExtensionNs="com.intellij">
+        <toolWindow id="Kanbn" anchor="bottom" icon="/icons/kanbn.svg"
+                    factoryClass="com.github.mikrop.intellijkanbn.ui.KanbnToolWindowFactory"/>
+    </extensions>
+</idea-plugin>
